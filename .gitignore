@@ -1,6 +1,7 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
+*.py[cod]
 *$py.class
 
 # C extensions
@@ -218,3 +219,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local Storage (για να μην ανεβαίνουν μεγάλα μοντέλα & datasets στο Git)
+storage/*
+!storage/.gitkeep
