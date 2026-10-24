@@ -159,6 +159,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+backend/.env
 
 # Spyder project settings
 .spyderproject
@@ -223,3 +224,29 @@ __marimo__/
 # Local Storage (για να μην ανεβαίνουν μεγάλα μοντέλα & datasets στο Git)
 storage/*
 !storage/.gitkeep
+
+# --- XAI Model Auditor Specific ---
+
+# Docker database persistent directory
+pgdata/
+DATABASE_URL=postgresql+psycopg://xai:xai_dev_pw@localhost:5432/xai_auditor
+SECRET_KEY=SECRET_KEY=change-me
+
+# Model Files & Large Weights
+*.pt
+*.onnx
+*.pth
+*.safetensors
+*.bin
+
+# Datasets & Temporary Archives
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# Frontend build artifacts & dependencies (αν έχετε React/Next.js/Vue φάκελο)
+node_modules/
+.next/
+dist/
+build/

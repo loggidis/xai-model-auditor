@@ -1,0 +1,29 @@
+# Git & Documentation
+.git
+.gitignore
+README.md
+LICENSE
+
+# Virtual Environments & Python Cache
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node / Frontend Build Artifacts
+node_modules/
+.next/
+dist/
+
+# Storage & Local Databases
+storage/
+pgdata/
+*.zip
+*.pt
+
+# Docker configuration files
+docker-compose.yml
+docker-compose.yaml
+Dockerfile
