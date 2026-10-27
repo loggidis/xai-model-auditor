@@ -16,3 +16,4 @@ PyJWT
 bcrypt
 pytest
 httpx
+ultralytics

@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.ml_model import ModelRead
+from app.schemas.xai import LayerRead
 from app.services import model_service
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -34,3 +35,11 @@ def get_model(model_id: uuid.UUID, db: Session = Depends(get_db), user: User = D
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_model(model_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     model_service.delete_model(db, user, model_id)
+
+@router.get("/{model_id}/recommended-layers", response_model=list[LayerRead])
+def recommended_layers(model_id: uuid.UUID, db: Session = Depends(get_db),
+                       user: User = Depends(get_current_user)):
+    obj = model_service.get_owned_model(db, user, model_id)
+    if obj.recommended_layers is None:          # μοντέλα που ανέβηκαν στο Sprint 2
+        model_service.inspect_model(db, obj)
+    return obj.recommended_layers
