@@ -2,8 +2,9 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, Integer, BigInteger, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.db.base import Base
+
 
 class MLModel(Base):
     __tablename__ = "models"
@@ -20,6 +21,12 @@ class MLModel(Base):
     original_filename: Mapped[str] = mapped_column(String(255))
     file_path: Mapped[str] = mapped_column(String(500))  # σχετικό με STORAGE_DIR
     file_size: Mapped[int] = mapped_column(BigInteger)
+
+    # Συμπληρώνονται από τον loader (Sprint 3)
+    architecture_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    class_names: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    recommended_layers: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

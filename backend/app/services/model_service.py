@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import select
@@ -9,6 +10,26 @@ from app.models.user import User
 from app.services import storage
 
 ALLOWED_EXT = {".pt", ".pth"}
+
+
+def inspect_model(db: Session, obj: MLModel) -> MLModel:
+    """Φορτώνει το μοντέλο και συμπληρώνει τα metadata. ΠΡΟΣΟΧΗ: εκτελεί pickle (βλ. README)."""
+    from app.xai.loader import UnsupportedModelError, load_model   # lazy: torch/ultralytics
+    try:
+        loaded = load_model(storage.abs_path(obj.file_path))
+    except UnsupportedModelError as e:
+        raise HTTPException(422, str(e))
+    info = loaded.info
+    obj.architecture_type = info.architecture_type
+    obj.task = info.task
+    obj.num_classes = info.num_classes
+    obj.input_size = info.input_size
+    obj.class_names = info.class_names
+    obj.recommended_layers = [asdict(l) for l in info.recommended_layers]
+    db.commit()
+    db.refresh(obj)
+    return obj
+
 
 def create_model(db: Session, user: User, file: UploadFile, name: str,
                  description: str | None, task: str,
@@ -34,18 +55,27 @@ def create_model(db: Session, user: User, file: UploadFile, name: str,
         storage.remove_dir(f"models/{user.id}/{model_id}")
         raise
     db.refresh(obj)
+
+    try:
+        inspect_model(db, obj)
+    except Exception:
+        delete_model(db, user, model_id)    # δεν μένει ορφανό αρχείο/εγγραφή
+        raise
     return obj
+
 
 def list_models(db: Session, user: User) -> list[MLModel]:
     return list(db.scalars(
         select(MLModel).where(MLModel.user_id == user.id).order_by(MLModel.created_at.desc())
     ))
 
+
 def get_owned_model(db: Session, user: User, model_id: uuid.UUID) -> MLModel:
     obj = db.scalar(select(MLModel).where(MLModel.id == model_id, MLModel.user_id == user.id))
     if not obj:
         raise HTTPException(404, "Model not found")
     return obj
+
 
 def delete_model(db: Session, user: User, model_id: uuid.UUID) -> None:
     obj = get_owned_model(db, user, model_id)

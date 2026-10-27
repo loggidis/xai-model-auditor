@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     MAX_DATASET_ZIP_MB: int = 1024
     MAX_DATASET_UNCOMPRESSED_MB: int = 2048
     MAX_DATASET_FILES: int = 20000
+    XAI_DEVICE: str = "auto"   
 
 
 settings = Settings()
