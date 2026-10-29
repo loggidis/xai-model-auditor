@@ -9,6 +9,8 @@ from app.core.config import settings
 from app.models.dataset import Dataset, DatasetImage
 from app.models.user import User
 from app.services import storage
+from pathlib import Path
+from app.models.audit import Audit
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 SAFE_NAME = re.compile(r"[\w.\- ()]+")  # όχι ":", "/", "\" κλπ.
@@ -128,7 +130,19 @@ def list_images(db: Session, dataset: Dataset, limit: int, offset: int):
 
 def delete_dataset(db: Session, user: User, dataset_id: uuid.UUID) -> None:
     obj = get_owned_dataset(db, user, dataset_id)
+    if db.scalar(select(func.count()).select_from(Audit).where(Audit.dataset_id == obj.id)):
+        raise HTTPException(409, "Dataset is used by audits; delete the audits first")
     rel = obj.path
     db.delete(obj)
     db.commit()
     storage.remove_dir(rel)
+
+def get_image_file(db: Session, dataset: Dataset, image_id: uuid.UUID) -> Path:
+    img = db.scalar(select(DatasetImage).where(DatasetImage.id == image_id,
+                                               DatasetImage.dataset_id == dataset.id))
+    if not img:
+        raise HTTPException(404, "Image not found")
+    path = storage.abs_path(f"{dataset.path}/images/{img.filename}")
+    if not path.is_file():
+        raise HTTPException(404, "Image file missing")
+    return path

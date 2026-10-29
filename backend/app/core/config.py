@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+
     # Storage (backend/app/core/config.py -> parents[3] = ρίζα project)
     STORAGE_DIR: Path = Path(__file__).resolve().parents[3] / "storage"
     MAX_MODEL_SIZE_MB: int = 500

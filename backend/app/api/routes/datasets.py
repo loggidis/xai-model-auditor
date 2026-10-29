@@ -6,6 +6,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.dataset import DatasetRead, ImagePage
 from app.services import dataset_service
+from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -41,3 +42,9 @@ def list_images(
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_dataset(dataset_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     dataset_service.delete_dataset(db, user, dataset_id)
+
+@router.get("/{dataset_id}/images/{image_id}")
+def get_image(dataset_id: uuid.UUID, image_id: uuid.UUID,
+              db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ds = dataset_service.get_owned_dataset(db, user, dataset_id)
+    return FileResponse(dataset_service.get_image_file(db, ds, image_id))
