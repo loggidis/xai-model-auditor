@@ -2,12 +2,13 @@ import uuid
 from dataclasses import asdict
 from pathlib import Path
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.ml_model import MLModel
 from app.models.user import User
 from app.services import storage
+from app.models.audit import Audit
 
 ALLOWED_EXT = {".pt", ".pth"}
 
@@ -79,6 +80,8 @@ def get_owned_model(db: Session, user: User, model_id: uuid.UUID) -> MLModel:
 
 def delete_model(db: Session, user: User, model_id: uuid.UUID) -> None:
     obj = get_owned_model(db, user, model_id)
+    if db.scalar(select(func.count()).select_from(Audit).where(Audit.model_id == obj.id)):
+        raise HTTPException(409, "Model is used by audits; delete the audits first")
     db.delete(obj)
     db.commit()
     storage.remove_dir(f"models/{user.id}/{model_id}")

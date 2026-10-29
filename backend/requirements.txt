@@ -17,3 +17,5 @@ bcrypt
 pytest
 httpx
 ultralytics
+celery
+redis
