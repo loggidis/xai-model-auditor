@@ -1,9 +1,11 @@
 import uuid
+import logging
+
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.audit import Audit, AuditResult
@@ -11,10 +13,15 @@ from app.models.dataset import DatasetImage
 from app.models.user import User
 from app.schemas.audit import (AuditCreate, AuditRead, HeatmapBrief, HeatmapRead, Progress,
                                ResultDetail, ResultSummary)
-from app.services import dataset_service, model_service, settings_service, storage
+from app.services import dataset_service, model_service, notification_service, settings_service, storage
+from app.services.events import publish
+from app.services.progress import progress_counts
+from app.worker.celery_app import celery_app
+
 from app.xai import registry
 from app.xai.heatmap_utils import heatmap_rel_path
 
+log = logging.getLogger(__name__)
 
 def create_audit(db: Session, user: User, data: AuditCreate) -> Audit:
     model = model_service.get_owned_model(db, user, data.model_id)        # 404 αν δεν είναι δικό του
@@ -124,15 +131,6 @@ def list_audits(db: Session, user: User, limit: int, offset: int) -> list[AuditR
     return to_read(db, audits)
 
 
-def delete_audit(db: Session, user: User, audit_id: uuid.UUID) -> None:
-    audit = get_owned_audit(db, user, audit_id)
-    if audit.status == "running":
-        raise HTTPException(409, "Audit is running (cancel will be added later)")
-    db.delete(audit)                              # τα results/heatmaps σβήνονται με CASCADE
-    db.commit()
-    storage.remove_dir(f"audits/{audit_id}")
-
-
 def list_results(db: Session, audit: Audit, status: str | None, batch_index: int | None,
                  limit: int, offset: int) -> tuple[list[ResultSummary], int]:
     q = select(AuditResult).where(AuditResult.audit_id == audit.id)
@@ -193,3 +191,81 @@ def get_heatmap_file(db: Session, audit: Audit, image_id: uuid.UUID, method: str
     if not path.is_file():
         raise HTTPException(404, "Heatmap file missing")
     return path
+
+# ---------- έλεγχος: cancel / retry / delete ----------
+
+def _revoke(task_id: str | None) -> None:
+    if not task_id:
+        return
+    try:       # best effort: το πραγματικό stop γίνεται από το status στη βάση
+        celery_app.control.revoke(task_id)
+    except Exception:
+        log.warning("Task revoke failed", exc_info=True)
+
+
+def cancel_audit(db: Session, user: User, audit_id: uuid.UUID) -> Audit:
+    audit = get_owned_audit(db, user, audit_id)
+    r = db.execute(
+        update(Audit).where(Audit.id == audit.id, Audit.status.in_(("pending", "running")))
+        .values(status="cancelled", finished_at=datetime.now(timezone.utc))
+    )
+    db.commit()
+    db.refresh(audit)
+    if r.rowcount == 0:
+        raise HTTPException(409, f"Audit is '{audit.status}' and cannot be cancelled")
+    _revoke(audit.celery_task_id)
+    publish(audit.id, "cancelled",
+            {**progress_counts(db, audit.id, audit.total_images), "status": "cancelled"})
+    notification_service.notify_audit(db, audit, "cancelled")
+    return audit
+
+
+def retry_audit(db: Session, user: User, audit_id: uuid.UUID) -> Audit:
+    audit = get_owned_audit(db, user, audit_id)
+    started = db.execute(
+        update(Audit).where(Audit.id == audit.id, Audit.status.in_(("completed", "failed", "cancelled")))
+        .values(status="pending", error_message=None, finished_at=None)
+    )
+    if started.rowcount == 0:
+        db.rollback()
+        raise HTTPException(409, f"Audit is '{audit.status}': only completed, failed or cancelled "
+                                 "audits can be retried")
+    db.execute(update(AuditResult)
+               .where(AuditResult.audit_id == audit.id, AuditResult.status == "failed")
+               .values(status="pending", error_message=None, processed_at=None))
+    pending = db.scalar(select(func.count()).select_from(AuditResult)
+                        .where(AuditResult.audit_id == audit.id, AuditResult.status == "pending"))
+    if not pending:
+        db.rollback()                              # αναιρεί και την αλλαγή status
+        raise HTTPException(409, "Nothing to retry: no failed or pending images")
+    db.commit()
+
+    from app.worker.tasks import run_audit
+    try:
+        audit.celery_task_id = run_audit.delay(str(audit.id)).id
+        db.commit()
+    except Exception:
+        audit.status = "failed"
+        audit.error_message = "Task queue unavailable"
+        audit.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(503, "Task queue unavailable (is Redis running?)")
+    db.refresh(audit)
+    return audit
+
+
+def delete_audit(db: Session, user: User, audit_id: uuid.UUID) -> None:
+    audit = get_owned_audit(db, user, audit_id)
+    if audit.status == "running":
+        raise HTTPException(409, "Audit is running: cancel it first")
+    if audit.status == "cancelled" and db.scalar(
+        select(func.count()).select_from(AuditResult)
+        .where(AuditResult.audit_id == audit.id, AuditResult.status == "processing")
+    ):
+        raise HTTPException(409, "Audit is finishing its current image, try again in a few seconds")
+    task_id, was_pending = audit.celery_task_id, audit.status == "pending"
+    db.delete(audit)                               # results/heatmaps σβήνονται με CASCADE
+    db.commit()
+    if was_pending:
+        _revoke(task_id)
+    storage.remove_dir(f"audits/{audit_id}")       # heatmaps από το filesystem

@@ -65,3 +65,15 @@ def get_heatmap(audit_id: uuid.UUID, image_id: uuid.UUID, method: str,
     audit = audit_service.get_owned_audit(db, user, audit_id)
     path = audit_service.get_heatmap_file(db, audit, image_id, method, raw)
     return FileResponse(path, media_type="image/png")
+
+
+@router.post("/{audit_id}/cancel", response_model=AuditRead)
+def cancel_audit(audit_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    audit = audit_service.cancel_audit(db, user, audit_id)
+    return audit_service.to_read(db, [audit])[0]
+
+
+@router.post("/{audit_id}/retry", response_model=AuditRead, status_code=status.HTTP_202_ACCEPTED)
+def retry_audit(audit_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    audit = audit_service.retry_audit(db, user, audit_id)
+    return audit_service.to_read(db, [audit])[0]

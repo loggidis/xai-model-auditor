@@ -2,7 +2,7 @@
 
 Web εφαρμογή για audit μοντέλων computer vision με μεθόδους Explainable AI (Grad-CAM++, Integrated Gradients, LIME, SHAP).
 
-**Κατάσταση:** Sprint 1 (FastAPI, PostgreSQL, Alembic, JWT auth)
+**Κατάσταση:** Sprint 2 (auth, model registry, datasets, file storage)
 
 ## Τεχνολογίες
 
@@ -53,12 +53,37 @@ Swagger UI: http://localhost:8000/docs
 
 ## Endpoints
 
+Όλα, εκτός από `register`, `login` και `health`, απαιτούν token (`Authorization: Bearer <JWT>`).
+
 | Method | Path | Περιγραφή |
 |---|---|---|
 | POST | `/api/auth/register` | Εγγραφή |
 | POST | `/api/auth/login` | Login, επιστρέφει JWT (email στο πεδίο `username`) |
-| GET | `/api/auth/me` | Τρέχων χρήστης (απαιτεί token) |
+| GET | `/api/auth/me` | Τρέχων χρήστης |
+| POST | `/api/models` | Upload μοντέλου (`.pt`/`.pth`) με `name`, `task`, προαιρετικά `description`, `num_classes`, `input_size` |
+| GET | `/api/models` | Λίστα μοντέλων του χρήστη |
+| GET | `/api/models/{id}` | Λεπτομέρειες μοντέλου |
+| DELETE | `/api/models/{id}` | Διαγραφή (βάση και αρχείο) |
+| POST | `/api/datasets` | Upload zip εικόνων (+ προαιρετικά YOLO labels) με `name` |
+| GET | `/api/datasets` | Λίστα datasets του χρήστη |
+| GET | `/api/datasets/{id}` | Λεπτομέρειες dataset |
+| GET | `/api/datasets/{id}/images` | Λίστα εικόνων (`limit`, `offset`) |
+| DELETE | `/api/datasets/{id}` | Διαγραφή (βάση και αρχεία) |
 | GET | `/api/health` | Liveness check |
+
+## Storage
+
+Τα αρχεία αποθηκεύονται στο `storage/` (δεν γίνεται commit). Στη βάση κρατιούνται σχετικά paths.
+
+```
+storage/
+├── models/<user_id>/<model_id>/model.pt
+└── datasets/<user_id>/<dataset_id>/
+    ├── images/
+    └── labels/          (YOLO, προαιρετικά)
+```
+
+Το zip δέχεται επίπεδη δομή ή `images/` + `labels/`. Τα labels αντιστοιχίζονται με τις εικόνες μέσω ονόματος (`img001.jpg` ↔ `img001.txt`). Τα όρια μεγέθους ορίζονται στο `app/core/config.py`.
 
 ## Migrations και tests
 
@@ -67,7 +92,7 @@ Swagger UI: http://localhost:8000/docs
 ```powershell
 alembic revision --autogenerate -m "περιγραφή"
 alembic upgrade head
-pytest
+python -m pytest
 ```
 
-Κάθε νέο model πρέπει να γίνεται import στο `app/models/__init__.py`.
+Κάθε νέο model πρέπει να γίνεται import στο `app/models/__init__.py`. Τα tests τρέχουν προς την πραγματική βάση.
