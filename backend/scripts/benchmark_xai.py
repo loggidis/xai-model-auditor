@@ -47,7 +47,7 @@ def main():
     method = get_method("gradcam_pp")
     files = sorted(p for p in a.images.iterdir() if p.suffix.lower() in EXT)[: a.n + a.warmup]
     if len(files) <= a.warmup:
-        raise SystemExit("Χρειάζονται περισσότερες εικόνες από το --warmup")
+        raise SystemExit("Need more images than --warmup")
     images = [read_image_rgb(p) for p in files]
     print(f"Device: {model.device} | images: {len(files) - a.warmup} (+{a.warmup} warmup)\n")
 
@@ -69,13 +69,12 @@ def main():
             default_median, default_det = med, statistics.median(det_t)
 
     per_image = default_median + default_det
-    print(f"\nΑνά εικόνα (default layer, detect + xai, ανά μέθοδο): ~{per_image:.2f}s")
-    print(f"Για progress update ανά ~{TARGET_BATCH_SECONDS}s και 1 μέθοδο: batch_size ≈ "
+    print(f"\nPer image (default layer, detect + xai, per method): ~{per_image:.2f}s")    
+    print(f"For progress update every ~{TARGET_BATCH_SECONDS}s and 1 method: batch_size ≈ "
           f"{max(1, round(TARGET_BATCH_SECONDS / per_image))}")
     if a.write:
         save_runtime_estimate(method.name, default_median, model.device.type)
-        print("Γράφτηκε στο app/xai/runtime_estimates.json")
-
+        print("Written to app/xai/runtime_estimates.json")
 
 if __name__ == "__main__":
     main()

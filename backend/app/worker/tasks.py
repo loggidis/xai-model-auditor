@@ -5,13 +5,15 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.models.audit import Audit, AuditResult, AuditResultHeatmap
 from app.models.dataset import Dataset
 from app.models.ml_model import MLModel
-from app.services import storage
+from app.services import notification_service, storage
+from app.services.events import publish
+from app.services.progress import progress_counts
 from app.worker.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ def _process_result(db: Session, audit: Audit, res: AuditResult, img_path, loade
 
     res.status = "processing"
     res.error_message = None
-    res.heatmaps.clear()              
+    res.heatmaps.clear()               
     db.commit()
 
     try:
@@ -80,30 +82,41 @@ def _process_result(db: Session, audit: Audit, res: AuditResult, img_path, loade
     db.commit()
 
 
+def _emit_image_events(db: Session, audit: Audit, res: AuditResult) -> None:
+    event = "image_done" if res.status == "done" else "image_failed"
+    publish(audit.id, event, {"image_id": str(res.image_id), "image_index": res.image_index,
+                              "status": res.status, "error": res.error_message})
+    publish(audit.id, "progress",
+            {**progress_counts(db, audit.id, audit.total_images), "status": "running"})
+
+
 def _run(db: Session, audit_id: uuid.UUID) -> None:
-    from app.xai.loader import load_model      # lazy, ώστε να μπορεί να γίνει patch στα tests
+    from app.xai.loader import load_model      
 
     audit = db.get(Audit, audit_id)
-    if audit is None or audit.status in ("completed", "failed", "cancelled"):
-        return
-    model_row = db.get(MLModel, audit.model_id)
-    dataset = db.get(Dataset, audit.dataset_id)
-    cfg = dict(audit.config_json)
+    if audit is None or audit.status not in ("pending", "running"):
+        return                                  
 
-    audit.status = "running"
-    audit.started_at = audit.started_at or _now()
+    started = db.execute(
+        update(Audit).where(Audit.id == audit_id, Audit.status.in_(("pending", "running")))
+        .values(status="running", started_at=func.coalesce(Audit.started_at, _now()))
+    )
+    if started.rowcount == 0:
+        db.rollback()
+        return
     # εικόνες που έμειναν "processing" από crash ξαναμπαίνουν στην ουρά
     db.execute(update(AuditResult)
                .where(AuditResult.audit_id == audit_id, AuditResult.status == "processing")
                .values(status="pending"))
     db.commit()
+    db.refresh(audit)
 
-    loaded = load_model(storage.abs_path(model_row.file_path))   # μία φορά ανά audit
+    model_row = db.get(MLModel, audit.model_id)
+    dataset = db.get(Dataset, audit.dataset_id)
+    cfg = dict(audit.config_json)
+    loaded = load_model(storage.abs_path(model_row.file_path))   
 
     while True:
-        db.refresh(audit)
-        if audit.status == "cancelled":       # προετοιμασία για το cancel endpoint
-            return
         batch = db.execute(
             select(AuditResult.id, AuditResult.image_id)
             .where(AuditResult.audit_id == audit_id, AuditResult.status == "pending")
@@ -112,25 +125,51 @@ def _run(db: Session, audit_id: uuid.UUID) -> None:
         if not batch:
             break
         for result_id, image_id in batch:
+            db.refresh(audit)
+            if audit.status == "cancelled":     
+                log.info("Audit %s cancelled, stopping", audit_id)
+                return
             res = db.get(AuditResult, result_id)
             path = storage.abs_path(f"{dataset.path}/images/{res.image.filename}")
             try:
                 _process_result(db, audit, res, path, loaded, cfg)
-            except Exception as e:             # σφάλμα βάσης/απρόβλεπτο: η εικόνα αποτυγχάνει, το audit συνεχίζει
+            except Exception as e:             
                 log.exception("Unexpected error on %s", image_id)
                 db.rollback()
                 res = db.get(AuditResult, result_id)
                 res.status, res.error_message, res.processed_at = "failed", _short(e), _now()
                 db.commit()
+            _emit_image_events(db, audit, res)
 
     done = db.scalar(select(func.count()).select_from(AuditResult)
                      .where(AuditResult.audit_id == audit_id, AuditResult.status == "done"))
     if done == 0 and audit.total_images > 0:
-        audit.status, audit.error_message = "failed", "All images failed"
+        new_status, err = "failed", "All images failed"
     else:
-        audit.status = "completed"
-    audit.finished_at = _now()
+        new_status, err = "completed", None
+    final = db.execute(
+        update(Audit).where(Audit.id == audit_id, Audit.status == "running")
+        .values(status=new_status, error_message=err, finished_at=_now())
+    )
     db.commit()
+    if final.rowcount:
+        db.refresh(audit)
+        publish(audit_id, new_status,
+                {**progress_counts(db, audit_id, audit.total_images), "status": new_status, "error": err})
+        notification_service.notify_audit(db, audit, new_status)
+
+
+def _mark_failed(db: Session, audit_id: uuid.UUID, message: str) -> None:
+    r = db.execute(
+        update(Audit).where(Audit.id == audit_id, Audit.status.in_(("pending", "running")))
+        .values(status="failed", error_message=message, finished_at=_now())
+    )
+    db.commit()
+    if r.rowcount:
+        audit = db.get(Audit, audit_id)
+        publish(audit_id, "failed",
+                {**progress_counts(db, audit_id, audit.total_images), "status": "failed", "error": message})
+        notification_service.notify_audit(db, audit, "failed")
 
 
 @celery_app.task(name="audits.run")
@@ -139,12 +178,9 @@ def run_audit(audit_id: str) -> None:
     db = SessionLocal()
     try:
         _run(db, aid)
-    except Exception as e:                     # π.χ. το μοντέλο δεν φορτώνεται
+    except Exception as e:                     
         log.exception("Audit %s failed", audit_id)
         db.rollback()
-        audit = db.get(Audit, aid)
-        if audit:
-            audit.status, audit.error_message, audit.finished_at = "failed", _short(e), _now()
-            db.commit()
+        _mark_failed(db, aid, _short(e))
     finally:
         db.close()

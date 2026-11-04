@@ -42,7 +42,7 @@ def main():
     res = get_method(a.method).run(model, img, a.layer, a.mask, conf_threshold=a.conf,
                                    detection_index=a.detection_index)
     if not res.targets:
-        print("\nΠροσοχή: δεν υπάρχουν detections >= conf, το heatmap είναι κενό. Μείωσε το --conf.")
+        print("Warning: no detections >= conf, the heatmap is empty. Lower --conf.")
     print(f"\n{res.method} layer={res.layer} mask={res.mask} targets={len(res.targets)} "
           f"box_focus={res.box_focus} runtime={res.runtime_s:.2f}s")
 
