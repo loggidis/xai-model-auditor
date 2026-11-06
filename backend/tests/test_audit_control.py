@@ -83,7 +83,7 @@ def test_cancel_then_retry_resumes(setup):
     assert r.status_code == 200 and r.json()["status"] == "cancelled"
     assert client.post(f"/api/audits/{audit_id}/cancel", headers=h).status_code == 409
 
-    with SessionLocal() as db:                       # ο worker βλέπει cancelled και δεν κάνει τίποτα
+    with SessionLocal() as db:                       # The worker sees "cancelled" and does nothing
         tasks._run(db, uuid.UUID(audit_id))
     a = client.get(f"/api/audits/{audit_id}", headers=h).json()
     assert a["status"] == "cancelled" and a["progress"]["pending"] == 3
@@ -95,7 +95,7 @@ def test_cancel_then_retry_resumes(setup):
     assert r.status_code == 200 and r.json()["is_read"] is True
     assert client.get("/api/notifications/unread-count", headers=h).json()["count"] == before
 
-    r = client.post(f"/api/audits/{audit_id}/retry", headers=h)     # συνεχίζει τις pending
+    r = client.post(f"/api/audits/{audit_id}/retry", headers=h)     # The worker resumes the pending tasks
     assert r.status_code == 202 and r.json()["status"] == "pending"
     with SessionLocal() as db:
         tasks._run(db, uuid.UUID(audit_id))
@@ -108,9 +108,9 @@ def test_retry_only_failed(setup):
     h, audit_id, _, _ = setup
     with SessionLocal() as db:
         tasks._run(db, uuid.UUID(audit_id))
-    assert client.post(f"/api/audits/{audit_id}/retry", headers=h).status_code == 409   # τίποτα failed
+    assert client.post(f"/api/audits/{audit_id}/retry", headers=h).status_code == 409   # No failed tasks
 
-    with SessionLocal() as db:                       # προσομοίωση μίας αποτυχημένης εικόνας
+    with SessionLocal() as db:                       # Simulate a failed image
         db.execute(update(AuditResult)
                    .where(AuditResult.audit_id == uuid.UUID(audit_id), AuditResult.image_index == 1)
                    .values(status="failed", error_message="boom"))

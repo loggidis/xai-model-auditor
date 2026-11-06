@@ -9,7 +9,7 @@ from app.core.config import settings
 
 
 class UnsupportedModelError(Exception):
-    """Το αρχείο δεν είναι μοντέλο που υποστηρίζουμε."""
+    """The file is not a model we support."""
 
 
 @dataclass
@@ -33,7 +33,7 @@ class ModelInfo:
 @dataclass
 class LoadedModel:
     yolo: Any                       # ultralytics.YOLO
-    net: torch.nn.Module            # yolo.model (το "γυμνό" PyTorch module)
+    net: torch.nn.Module            # yolo.model (raw PyTorch module)
     info: ModelInfo
     device: torch.device
 
@@ -113,7 +113,7 @@ def from_yolo(yolo) -> LoadedModel:
 
 
 def load_model(path: Path) -> LoadedModel:
-    from ultralytics import YOLO   # lazy import (βαρύ)
+    from ultralytics import YOLO   # lazy import 
     try:
         yolo = YOLO(str(path))
     except Exception as e:

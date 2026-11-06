@@ -6,7 +6,7 @@ from app.schemas.settings import SettingsUpdate
 
 def get_settings(db: Session, user: User) -> UserSettings:
     obj = db.get(UserSettings, user.id)
-    if obj is None:                       # δημιουργείται την πρώτη φορά με τα defaults
+    if obj is None:                       # Created on first run with default values
         obj = UserSettings(user_id=user.id, batch_size=5, notifications_enabled=True, theme="dark")
         db.add(obj)
         db.commit()

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
 
-    # Storage (backend/app/core/config.py -> parents[3] = ρίζα project)
+    # Storage (backend/app/core/config.py -> parents[3] = project root)
     STORAGE_DIR: Path = Path(__file__).resolve().parents[3] / "storage"
     MAX_MODEL_SIZE_MB: int = 500
     MAX_DATASET_ZIP_MB: int = 1024

@@ -42,12 +42,13 @@ def list_results(
     audit_id: uuid.UUID,
     status: Literal["pending", "processing", "done", "failed"] | None = None,
     batch_index: int | None = Query(None, ge=0),
+    auto_tag: Literal["consistent", "needs_review", "uncertain", "inconclusive", "no_detection"] | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     audit = audit_service.get_owned_audit(db, user, audit_id)
-    items, total = audit_service.list_results(db, audit, status, batch_index, limit, offset)
+    items, total = audit_service.list_results(db, audit, status, batch_index, auto_tag, limit, offset)
     return ResultPage(items=items, total=total, limit=limit, offset=offset)
 
 

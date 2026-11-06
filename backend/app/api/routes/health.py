@@ -35,6 +35,6 @@ def queue_health(db: Session = Depends(get_db), user: User = Depends(get_current
     return {
         "redis": redis_state,
         "workers": workers,
-        "pending_tasks": pending,                 # tasks που περιμένουν στο Redis
+        "pending_tasks": pending,                 # Tasks pending in Redis queue
         "audits": {"pending": counts.get("pending", 0), "running": counts.get("running", 0)},
     }

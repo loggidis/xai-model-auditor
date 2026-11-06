@@ -13,7 +13,7 @@ from pathlib import Path
 from app.models.audit import Audit
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-SAFE_NAME = re.compile(r"[\w.\- ()]+")  # όχι ":", "/", "\" κλπ.
+SAFE_NAME = re.compile(r"[\w.\- ()]+")  # no ":", "/", "\" etc.
 
 def _extract_zip(zip_path: Path, dest: Path) -> tuple[list[str], set[str]]:
     images_dir, labels_dir = dest / "images", dest / "labels"
@@ -97,12 +97,12 @@ def create_dataset(db: Session, user: User, file: UploadFile, name: str) -> Data
             image_count=len(rows), label_count=sum(r.has_label for r in rows),
         )
         db.add(dataset)
-        db.flush()            # δημιουργεί πρώτα το dataset (FK)
+        db.flush()            # Creates the dataset first (FK)
         db.add_all(rows)
         db.commit()
     except Exception:
         db.rollback()
-        storage.remove_dir(rel_dir)   # καθαρισμός μισοτελειωμένου upload
+        storage.remove_dir(rel_dir)   # Cleanup incomplete upload
         raise
 
     db.refresh(dataset)

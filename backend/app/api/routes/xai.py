@@ -9,7 +9,7 @@ router = APIRouter(prefix="/xai", tags=["xai"])
 
 
 @router.get("/methods", response_model=list[XAIMethodRead])
-def list_methods(architecture: str | None = Query(None, description="π.χ. yolo_detect"),
+def list_methods(architecture: str | None = Query(None, description="e.g.  yolo_detect"),
                  user: User = Depends(get_current_user)):
     return [m.metadata() for m in registry.list_methods(architecture)]
 

@@ -14,7 +14,7 @@ ALLOWED_EXT = {".pt", ".pth"}
 
 
 def inspect_model(db: Session, obj: MLModel) -> MLModel:
-    """Φορτώνει το μοντέλο και συμπληρώνει τα metadata. ΠΡΟΣΟΧΗ: εκτελεί pickle (βλ. README)."""
+    """Loads the model and populates metadata. WARNING: executes pickle (see README)."""
     from app.xai.loader import UnsupportedModelError, load_model   # lazy: torch/ultralytics
     try:
         loaded = load_model(storage.abs_path(obj.file_path))
@@ -60,7 +60,7 @@ def create_model(db: Session, user: User, file: UploadFile, name: str,
     try:
         inspect_model(db, obj)
     except Exception:
-        delete_model(db, user, model_id)    # δεν μένει ορφανό αρχείο/εγγραφή
+        delete_model(db, user, model_id)    # Prevent orphan files/records
         raise
     return obj
 

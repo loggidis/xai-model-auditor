@@ -13,7 +13,7 @@ from app.xai.preprocess import letterbox, to_tensor
 
 
 class _TensorOutput(torch.nn.Module):
-    """Το Ultralytics επιστρέφει tuple. Το pytorch-grad-cam θέλει ένα tensor (B, 4+nc, anchors)."""
+    """Ultralytics returns a tuple. pytorch-grad-cam expects a single tensor of shape (B, 4+nc, anchors)."""
 
     def __init__(self, net: torch.nn.Module, num_classes: int):
         super().__init__()
@@ -33,12 +33,12 @@ class _TensorOutput(torch.nn.Module):
 
 
 class DetectionScoreTarget:
-    """Scalar στόχος: άθροισμα class scores των επιλεγμένων detections.
-    Η επιλογή (threshold + NMS) γίνεται εδώ, στο ίδιο forward pass."""
+    """Scalar target: sum of class scores of the selected detections.
+    The selection (threshold + NMS) is done here, in the same forward pass."""
 
     def __init__(self, conf: float, iou: float, max_det: int, detection_index: int | None):
         self.conf, self.iou, self.max_det, self.index = conf, iou, max_det, detection_index
-        self.boxes: list[list[float]] = []     # xyxy σε συντεταγμένες letterbox
+        self.boxes: list[list[float]] = []     # xyxy in letterbox coordinates  
         self.class_ids: list[int] = []
         self.confs: list[float] = []
 
@@ -51,7 +51,7 @@ class DetectionScoreTarget:
             if idx.numel():
                 xywh = out[:4, idx].T
                 xyxy = torch.cat([xywh[:, :2] - xywh[:, 2:] / 2, xywh[:, :2] + xywh[:, 2:] / 2], dim=1)
-                keep = nms(xyxy, conf[idx], self.iou)[: self.max_det]   # ταξινομημένα κατά φθίνουσα conf
+                keep = nms(xyxy, conf[idx], self.iou)[: self.max_det]   # sorted by descending conf
                 if self.index is not None:
                     keep = keep[self.index: self.index + 1]
                 sel = idx[keep]
@@ -59,26 +59,26 @@ class DetectionScoreTarget:
                 self.class_ids = cls[sel].tolist()
                 self.confs = conf[sel].tolist()
         if sel.numel() == 0:
-            return out.sum() * 0          # καμία detection -> μηδενικό heatmap
+            return out.sum() * 0          # no detections -> zero heatmap
         return out[4 + cls[sel], sel].sum()
 
 
 class GradCAMPlusPlusYOLO(BaseXAIMethod):
     name = "gradcam_pp"
     display_name = "Grad-CAM++"
-    description = ("Gradient-based heatmap πάνω σε feature map του δικτύου. "
-                   "Στόχος: οι detections πάνω από το confidence threshold.")
+    description = ("Gradient-based heatmap overlay on a network feature map."
+                   "Target: detections above the confidence threshold.")
     applicable_architectures = ["yolo_detect"]
     supported_masks = ["full_image", "detection_boxes", "background"]
     params_schema = {
         "type": "object",
         "properties": {
             "iou": {"type": "number", "minimum": 0.05, "maximum": 1.0, "default": 0.7,
-                    "description": "NMS IoU για την επιλογή των target detections"},
+                    "description": "NMS IoU for the selection of target detections"},
             "max_det": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20,
-                        "description": "Μέγιστος αριθμός detections στον στόχο"},
+                        "description": "Maximum number of detections in the target"},
             "detection_index": {"type": ["integer", "null"], "minimum": 0, "default": None,
-                                "description": "null = όλες οι detections, k = μόνο η k-οστή (κατά φθίνουσα conf)"},
+                                "description": "null = all detections, k = only the k-th (by descending conf)"},
         },
     }
 
@@ -93,7 +93,7 @@ class GradCAMPlusPlusYOLO(BaseXAIMethod):
 
         t0 = time.perf_counter()
         canvas, lb = letterbox(image, model.info.input_size)
-        # requires_grad στο input: τα params μπορεί να είναι frozen (μετά το fuse του Ultralytics)
+        # requires_grad on the input: the params might be frozen (after the fuse in Ultralytics)
         x = to_tensor(canvas, model.device).requires_grad_(True)
         target = DetectionScoreTarget(conf_threshold, p["iou"], p["max_det"], p["detection_index"])
         wrapped = _TensorOutput(model.net, model.info.num_classes)

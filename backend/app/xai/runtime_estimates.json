@@ -1,1 +1,18 @@
-{}
+{
+  "gradcam_pp": {
+    "seconds": 0.545,
+    "device": "cpu"
+  },
+  "integrated_gradients": {
+    "seconds": 8.672,
+    "device": "cpu"
+  },
+  "shap_partition": {
+    "seconds": 68.106,
+    "device": "cpu"
+  },
+  "lime_image": {
+    "seconds": 73.83,
+    "device": "cpu"
+  }
+}

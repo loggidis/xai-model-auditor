@@ -20,16 +20,18 @@ from app.worker.celery_app import celery_app
 
 from app.xai import registry
 from app.xai.heatmap_utils import heatmap_rel_path
+from app.xai.tagging import TaggingConfig
 
 log = logging.getLogger(__name__)
 
+
 def create_audit(db: Session, user: User, data: AuditCreate) -> Audit:
-    model = model_service.get_owned_model(db, user, data.model_id)        # 404 αν δεν είναι δικό του
+    model = model_service.get_owned_model(db, user, data.model_id)        # 404 if it is not theirs
     dataset = dataset_service.get_owned_dataset(db, user, data.dataset_id)
     if model.architecture_type is None or model.recommended_layers is None:
-        model_service.inspect_model(db, model)                            # μοντέλα του Sprint 2
+        model_service.inspect_model(db, model)                            # Sprint 2 models
 
-    methods = list(dict.fromkeys(data.xai_methods))                       # χωρίς διπλότυπα
+    methods = list(dict.fromkeys(data.xai_methods))                       # remove duplicates
     resolved = []
     for name in methods:
         try:
@@ -53,6 +55,17 @@ def create_audit(db: Session, user: User, data: AuditCreate) -> Audit:
             raise HTTPException(422, f"Mask '{mask}' is not supported by '{m.name}'. "
                                      f"Supported: {m.supported_masks}")
 
+    method_params = data.method_params or {}
+    for pname in method_params:
+        if pname not in methods:
+            raise HTTPException(422, f"method_params refers to '{pname}', which is not in xai_methods")
+    for m in resolved:
+        try:
+            m.resolve_params(method_params.get(m.name, {}))     # check names, types, limits
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+    tagging = (data.tagging or TaggingConfig()).model_dump()
+
     batch_size = settings_service.get_settings(db, user).batch_size
     image_ids = db.scalars(
         select(DatasetImage.id).where(DatasetImage.dataset_id == dataset.id)
@@ -63,7 +76,8 @@ def create_audit(db: Session, user: User, data: AuditCreate) -> Audit:
         id=uuid.uuid4(), user_id=user.id, model_id=model.id, dataset_id=dataset.id,
         status="pending", total_images=len(image_ids),
         config_json={"xai_methods": methods, "target_layer": layer, "mask": mask,
-                     "conf_threshold": data.conf_threshold, "batch_size": batch_size},
+                     "conf_threshold": data.conf_threshold, "batch_size": batch_size,
+                     "method_params": method_params, "tagging": tagging},
     )
     db.add(audit)
     db.flush()
@@ -71,7 +85,7 @@ def create_audit(db: Session, user: User, data: AuditCreate) -> Audit:
         AuditResult(audit_id=audit.id, image_id=img_id, image_index=i, batch_index=i // batch_size)
         for i, img_id in enumerate(image_ids)
     ])
-    db.commit()                                   # πρώτα η βάση, μετά το task
+    db.commit()                                   # database first, then the task
 
     from app.worker.tasks import run_audit
     try:
@@ -132,12 +146,14 @@ def list_audits(db: Session, user: User, limit: int, offset: int) -> list[AuditR
 
 
 def list_results(db: Session, audit: Audit, status: str | None, batch_index: int | None,
-                 limit: int, offset: int) -> tuple[list[ResultSummary], int]:
+                 auto_tag: str | None, limit: int, offset: int) -> tuple[list[ResultSummary], int]:
     q = select(AuditResult).where(AuditResult.audit_id == audit.id)
     if status:
         q = q.where(AuditResult.status == status)
     if batch_index is not None:
         q = q.where(AuditResult.batch_index == batch_index)
+    if auto_tag:
+        q = q.where(AuditResult.auto_tag == auto_tag)
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.scalars(
         q.options(selectinload(AuditResult.heatmaps), selectinload(AuditResult.image))
@@ -147,6 +163,7 @@ def list_results(db: Session, audit: Audit, status: str | None, batch_index: int
         ResultSummary(
             image_id=r.image_id, filename=r.image.filename, image_index=r.image_index,
             batch_index=r.batch_index, status=r.status, detection_count=len(r.detections or []),
+            agreement_score=r.agreement_score, auto_tag=r.auto_tag,
             heatmaps=[HeatmapBrief(method=h.method, status=h.status) for h in r.heatmaps],
         ) for r in rows
     ]
@@ -169,7 +186,8 @@ def get_result_detail(db: Session, audit: Audit, image_id: uuid.UUID) -> ResultD
     return ResultDetail(
         image_id=r.image_id, filename=r.image.filename, image_index=r.image_index,
         batch_index=r.batch_index, status=r.status, error_message=r.error_message,
-        detections=r.detections,
+        detections=r.detections, agreement_score=r.agreement_score, auto_tag=r.auto_tag,
+        auto_tag_reason=r.auto_tag_reason, agreement_details=r.agreement_details,
         heatmaps=[
             HeatmapRead(
                 method=h.method, status=h.status, runtime_ms=h.runtime_ms,
@@ -192,12 +210,13 @@ def get_heatmap_file(db: Session, audit: Audit, image_id: uuid.UUID, method: str
         raise HTTPException(404, "Heatmap file missing")
     return path
 
-# ---------- έλεγχος: cancel / retry / delete ----------
+
+# ---------- control: cancel / retry / delete ----------
 
 def _revoke(task_id: str | None) -> None:
     if not task_id:
         return
-    try:       # best effort: το πραγματικό stop γίνεται από το status στη βάση
+    try:       # best effort: the real stop is driven by the status in the database
         celery_app.control.revoke(task_id)
     except Exception:
         log.warning("Task revoke failed", exc_info=True)
@@ -236,7 +255,7 @@ def retry_audit(db: Session, user: User, audit_id: uuid.UUID) -> Audit:
     pending = db.scalar(select(func.count()).select_from(AuditResult)
                         .where(AuditResult.audit_id == audit.id, AuditResult.status == "pending"))
     if not pending:
-        db.rollback()                              # αναιρεί και την αλλαγή status
+        db.rollback()                              # also undoes the status change
         raise HTTPException(409, "Nothing to retry: no failed or pending images")
     db.commit()
 
@@ -264,8 +283,8 @@ def delete_audit(db: Session, user: User, audit_id: uuid.UUID) -> None:
     ):
         raise HTTPException(409, "Audit is finishing its current image, try again in a few seconds")
     task_id, was_pending = audit.celery_task_id, audit.status == "pending"
-    db.delete(audit)                               # results/heatmaps σβήνονται με CASCADE
+    db.delete(audit)                               # results/heatmaps are deleted via CASCADE
     db.commit()
     if was_pending:
         _revoke(task_id)
-    storage.remove_dir(f"audits/{audit_id}")       # heatmaps από το filesystem
+    storage.remove_dir(f"audits/{audit_id}")       # heatmaps from the filesystem

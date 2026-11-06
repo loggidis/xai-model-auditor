@@ -7,7 +7,7 @@ from app.xai.loader import LoadedModel
 
 @dataclass
 class Detection:
-    box: tuple[float, float, float, float]   # x1, y1, x2, y2 (pixels της αρχικής εικόνας)
+    box: tuple[float, float, float, float]  # x1, y1, x2, y2 (original image pixels)
     class_id: int
     class_name: str
     conf: float
@@ -19,11 +19,11 @@ class Detection:
 
 def detect(model: LoadedModel, image_rgb: np.ndarray, conf_threshold: float = 0.25,
            iou: float = 0.7, max_det: int = 300) -> list[Detection]:
-    bgr = np.ascontiguousarray(image_rgb[..., ::-1])   # το Ultralytics περιμένει BGR για numpy
+    bgr = np.ascontiguousarray(image_rgb[..., ::-1])   # the Ultralytics expects BGR for numpy
     res = model.yolo.predict(
         bgr, conf=conf_threshold, iou=iou, max_det=max_det,
         imgsz=model.info.input_size,
-        device="cpu" if model.device.type == "cpu" else 0,
+        device=str(model.device),          # "cpu", "cuda:0", "cuda:1"...
         verbose=False,
     )[0]
     xyxy = res.boxes.xyxy.cpu().numpy()

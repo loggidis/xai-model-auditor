@@ -66,8 +66,8 @@ async def stream_audit(audit_id: uuid.UUID, request: Request, token: str | None 
     client = aioredis.Redis.from_url(settings.REDIS_URL)
     pubsub = client.pubsub()
     try:
-        await pubsub.subscribe(channel(audit_id))                         # 1. πρώτα subscribe
-        status, counts = await run_in_threadpool(_load_snapshot, audit_id, user_id)   # 2. μετά snapshot
+        await pubsub.subscribe(channel(audit_id))                         # 1. Subscribe first
+        status, counts = await run_in_threadpool(_load_snapshot, audit_id, user_id)   # 2. then snapshot
     except redis.exceptions.RedisError:
         await _close(pubsub, client)
         raise HTTPException(503, "Event stream unavailable (is Redis running?)")
@@ -86,7 +86,7 @@ async def stream_audit(audit_id: uuid.UUID, request: Request, token: str | None 
                     break
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15)
                 if msg is None:
-                    yield ": keep-alive\n\n"             # κρατά τη σύνδεση ζωντανή
+                    yield ": keep-alive\n\n"             
                     continue
                 payload = json.loads(msg["data"])
                 yield _sse(payload["event"], payload["data"])

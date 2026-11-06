@@ -13,7 +13,7 @@ class Dataset(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(255))
-    path: Mapped[str] = mapped_column(String(500))  # σχετικός φάκελος
+    path: Mapped[str] = mapped_column(String(500))  # Relative directory
     image_count: Mapped[int] = mapped_column(Integer, default=0)
     label_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(

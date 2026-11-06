@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 def notify_audit(db: Session, audit: Audit, kind: str) -> None:
-    """kind: completed | failed | cancelled. Ποτέ δεν πετάει σφάλμα (δεν πρέπει να χαλάσει το audit)."""
+    """kind: completed | failed | cancelled. Never throws an error (must not interrupt/break the audit)."""
     try:
         prefs = db.get(UserSettings, audit.user_id)
         if prefs is not None and not prefs.notifications_enabled:
@@ -40,7 +40,7 @@ def list_notifications(db: Session, user: User, unread_only: bool, limit: int, o
     q = select(Notification).where(Notification.user_id == user.id)
     if unread_only:
         q = q.where(Notification.is_read.is_(False))
-    # μη διαβασμένα πρώτα, μετά τα πιο πρόσφατα
+    # unread first, then the most recent
     return list(db.scalars(q.order_by(Notification.is_read.asc(), Notification.created_at.desc())
                            .limit(limit).offset(offset)))
 

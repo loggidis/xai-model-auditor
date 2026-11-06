@@ -21,7 +21,7 @@ def _get() -> redis.Redis:
 
 
 def publish(audit_id, event: str, data: dict) -> None:
-    """Δεν πετάει ποτέ σφάλμα: αν το Redis είναι κάτω, χάνεται μόνο το live event, όχι η δουλειά."""
+    """Never throws an error: if Redis is down, only the live event is lost, not the job."""
     try:
         _get().publish(channel(audit_id), json.dumps({"event": event, "data": data}, default=str))
     except Exception as e:
