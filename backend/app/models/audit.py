@@ -56,6 +56,11 @@ class AuditResult(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    agreement_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    agreement_details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    auto_tag: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    auto_tag_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     image: Mapped[DatasetImage] = relationship()
     heatmaps: Mapped[list["AuditResultHeatmap"]] = relationship(
         cascade="all, delete-orphan", passive_deletes=True, order_by="AuditResultHeatmap.method"
@@ -74,5 +79,5 @@ class AuditResultHeatmap(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")   # done | failed
     runtime_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # σχετικό με storage
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # relative to storage
     box_focus: Mapped[float | None] = mapped_column(Float, nullable=True)

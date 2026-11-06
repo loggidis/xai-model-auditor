@@ -17,7 +17,7 @@ def test_dataset_upload_and_delete():
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("images/a.jpg", b"fake")
         z.writestr("labels/a.txt", "0 0.5 0.5 0.2 0.2")
-        z.writestr("../evil.jpg", b"fake")   # το path αγνοείται, κρατιέται μόνο το όνομα
+        z.writestr("../evil.jpg", b"fake")  # Path is ignored, only the filename/name is retained
     buf.seek(0)
     r = client.post("/api/datasets", headers=h, data={"name": "t"},
                     files={"file": ("d.zip", buf, "application/zip")})

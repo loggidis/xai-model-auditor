@@ -19,10 +19,10 @@ class MLModel(Base):
     num_classes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     original_filename: Mapped[str] = mapped_column(String(255))
-    file_path: Mapped[str] = mapped_column(String(500))  # σχετικό με STORAGE_DIR
+    file_path: Mapped[str] = mapped_column(String(500))  # Relative to STORAGE_DIR
     file_size: Mapped[int] = mapped_column(BigInteger)
 
-    # Συμπληρώνονται από τον loader (Sprint 3)
+    # Populated by the loader
     architecture_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     class_names: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     recommended_layers: Mapped[list | None] = mapped_column(JSONB, nullable=True)

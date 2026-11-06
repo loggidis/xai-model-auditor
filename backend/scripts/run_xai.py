@@ -1,4 +1,4 @@
-"""Παράδειγμα:
+"""Example:
 python -m scripts.run_xai --model C:\\path\\best.pt --image C:\\path\\img.jpg --conf 0.25
 """
 import argparse
@@ -19,7 +19,7 @@ def main():
     ap.add_argument("--image", required=True, type=Path)
     ap.add_argument("--out", type=Path, default=Path("xai_out"))
     ap.add_argument("--method", default="gradcam_pp")
-    ap.add_argument("--layer", default=None, help="π.χ. model.18 (default: το προτεινόμενο)")
+    ap.add_argument("--layer", default=None, help="e.g., model.18 (default: recommended)")
     ap.add_argument("--mask", default="full_image")
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--detection-index", type=int, default=None)

@@ -19,7 +19,7 @@ def read_image_rgb(path: Path) -> np.ndarray:
 
 
 def write_png(path: Path, array: np.ndarray) -> None:
-    """array: HxW (gray) ή HxWx3 (RGB), uint8."""
+    """array: HxW (gray) or HxWx3 (RGB), uint8."""
     if array.ndim == 3:
         array = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
     ok, buf = cv2.imencode(".png", array)
@@ -35,7 +35,7 @@ def colorize(heatmap: np.ndarray) -> np.ndarray:
 
 
 def overlay(image_rgb: np.ndarray, heatmap: np.ndarray, alpha: float = 0.7) -> np.ndarray:
-    """Η διαφάνεια ακολουθεί την ένταση: όπου δεν υπάρχει θερμότητα, φαίνεται η εικόνα."""
+    """The transparency follows the intensity: where there is no heat, the image is visible."""
     a = np.clip(heatmap, 0, 1)[..., None] * alpha
     out = image_rgb.astype(np.float32) * (1 - a) + colorize(heatmap).astype(np.float32) * a
     return out.astype(np.uint8)
@@ -52,7 +52,7 @@ def draw_detections(image_rgb: np.ndarray, detections) -> np.ndarray:
 
 
 def heatmap_rel_path(audit_id: uuid.UUID, image_id: uuid.UUID, method: str, raw: bool = False) -> str:
-    """Σταθερό naming: audits/{audit_id}/{image_id}/{method}.png (σχετικό με το storage)."""
+    """Fixed naming: audits/{audit_id}/{image_id}/{method}.png (relative to the storage)."""
     if not _METHOD_RE.fullmatch(method):
         raise ValueError("Invalid method name")
     suffix = ".raw.png" if raw else ".png"
@@ -61,7 +61,7 @@ def heatmap_rel_path(audit_id: uuid.UUID, image_id: uuid.UUID, method: str, raw:
 
 def save_heatmap_files(audit_id: uuid.UUID, image_id: uuid.UUID, method: str,
                        image_rgb: np.ndarray, heatmap: np.ndarray) -> str:
-    """Γράφει {method}.png (overlay) και {method}.raw.png (8-bit grayscale). Επιστρέφει το σχετικό path του overlay."""
+    """Writes {method}.png (overlay) and {method}.raw.png (8-bit grayscale). Returns the relative path of the overlay."""
     rel = heatmap_rel_path(audit_id, image_id, method)
     write_png(storage.abs_path(rel), overlay(image_rgb, heatmap))
     raw_rel = heatmap_rel_path(audit_id, image_id, method, raw=True)

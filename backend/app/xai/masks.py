@@ -4,7 +4,7 @@ import numpy as np
 
 
 def boxes_region(shape: tuple[int, int], boxes) -> np.ndarray:
-    """Boolean μάσκα (H, W): True μέσα σε οποιοδήποτε box."""
+    """Boolean mask (H, W): True inside any box."""
     h, w = shape
     region = np.zeros(shape, dtype=bool)
     for x1, y1, x2, y2 in boxes:
@@ -26,7 +26,7 @@ class BaseMask(ABC):
 
 class FullImageMask(BaseMask):
     name = "full_image"
-    description = "Ολόκληρο το heatmap, χωρίς περιορισμό."
+    description = "Full heatmap, without restriction."
 
     def apply(self, heatmap, boxes):
         return heatmap
@@ -34,7 +34,7 @@ class FullImageMask(BaseMask):
 
 class DetectionBoxesMask(BaseMask):
     name = "detection_boxes"
-    description = "Μόνο η θερμότητα μέσα στα bounding boxes των detections."
+    description = "Only the heat within the bounding boxes of the detections."
 
     def apply(self, heatmap, boxes):
         return heatmap * boxes_region(heatmap.shape, boxes)
@@ -42,7 +42,7 @@ class DetectionBoxesMask(BaseMask):
 
 class BackgroundMask(BaseMask):
     name = "background"
-    description = "Μόνο η θερμότητα έξω από τα boxes (πού κοιτάζει το μοντέλο στο φόντο)."
+    description = "Only the heat outside the bounding boxes (where the model looks at the background)."
 
     def apply(self, heatmap, boxes):
         return heatmap * ~boxes_region(heatmap.shape, boxes)

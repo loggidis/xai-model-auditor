@@ -19,7 +19,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # Το OAuth2 form στέλνει το email στο πεδίο "username"
+# The OAuth2 form sends the email in the "username" field
     user = auth_service.authenticate(db, form.username, form.password)
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")

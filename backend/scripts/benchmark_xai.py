@@ -1,5 +1,5 @@
-"""Παράδειγμα:
-python -m scripts.benchmark_xai --model best.pt --images C:\\path\\to\\images --n 20 --write
+"""Example:
+python -m scripts.benchmark_xai --model best.pt --images C:\\path\\to\\images --n 10 --slow-n 3 --write
 """
 import argparse
 import statistics
@@ -13,10 +13,10 @@ from app.xai.base import save_runtime_estimate
 from app.xai.heatmap_utils import read_image_rgb
 from app.xai.inference import detect
 from app.xai.loader import load_model
-from app.xai.registry import get_method
+from app.xai.registry import list_methods
 
 EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-TARGET_BATCH_SECONDS = 10   # θέλουμε ενημέρωση progress κάθε ~10s
+TARGET_BATCH_SECONDS = 10   # we want a progress update every ~10s
 
 
 def timed(device, fn):
@@ -29,52 +29,73 @@ def timed(device, fn):
     return out, time.perf_counter() - t
 
 
-def stats(xs):
-    return statistics.median(xs), statistics.mean(xs), float(np.percentile(xs, 95))
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, type=Path)
     ap.add_argument("--images", required=True, type=Path)
-    ap.add_argument("--n", type=int, default=20)
-    ap.add_argument("--warmup", type=int, default=2)
+    ap.add_argument("--n", type=int, default=10, help="images for the fast methods")
+    ap.add_argument("--slow-n", type=int, default=3, help="images for the slow methods")
+    ap.add_argument("--warmup", type=int, default=1)
     ap.add_argument("--conf", type=float, default=0.25)
-    ap.add_argument("--write", action="store_true", help="αποθήκευση στο runtime_estimates.json")
+    ap.add_argument("--methods", default=None, help="e.g. gradcam_pp,lime_image (default: all)")
+    ap.add_argument("--write", action="store_true", help="save to runtime_estimates.json")
     a = ap.parse_args()
 
     model = load_model(a.model)
-    method = get_method("gradcam_pp")
-    files = sorted(p for p in a.images.iterdir() if p.suffix.lower() in EXT)[: a.n + a.warmup]
-    if len(files) <= a.warmup:
-        raise SystemExit("Need more images than --warmup")
-    images = [read_image_rgb(p) for p in files]
-    print(f"Device: {model.device} | images: {len(files) - a.warmup} (+{a.warmup} warmup)\n")
+    wanted = set(a.methods.split(",")) if a.methods else None
+    methods = [m for m in list_methods(model.info.architecture_type) if not wanted or m.name in wanted]
 
-    default_median = None
-    print(f"{'layer':<12}{'detect med':>12}{'xai med':>10}{'xai mean':>10}{'xai p95':>10}")
-    for layer in model.info.recommended_layers:
-        det_t, xai_t = [], []
-        for i, img in enumerate(images):
-            _, td = timed(model.device, lambda: detect(model, img, a.conf))
-            _, tx = timed(model.device, lambda: method.run(model, img, layer.name, "full_image",
-                                                           conf_threshold=a.conf))
-            if i >= a.warmup:
-                det_t.append(td)
-                xai_t.append(tx)
-        med, mean, p95 = stats(xai_t)
-        tag = " (default)" if layer.default else ""
-        print(f"{layer.name + tag:<12}{statistics.median(det_t):>11.3f}s{med:>9.3f}s{mean:>9.3f}s{p95:>9.3f}s")
-        if layer.default:
-            default_median, default_det = med, statistics.median(det_t)
+    files = sorted(p for p in a.images.iterdir() if p.suffix.lower() in EXT)
+    need = a.warmup + max(a.n, a.slow_n)
+    if len(files) < need:
+        raise SystemExit(f"At least {need} images are needed (found {len(files)})")
+    images = [read_image_rgb(p) for p in files[:need]]
+    print(f"Device: {model.device} | methods: {[m.name for m in methods]}\n")
 
-    per_image = default_median + default_det
-    print(f"\nPer image (default layer, detect + xai, per method): ~{per_image:.2f}s")    
-    print(f"For progress update every ~{TARGET_BATCH_SECONDS}s and 1 method: batch_size ≈ "
-          f"{max(1, round(TARGET_BATCH_SECONDS / per_image))}")
+    det = [timed(model.device, lambda: detect(model, img, a.conf))[1] for img in images[a.warmup:a.warmup + a.n]]
+    det_med = statistics.median(det)
+    print(f"detect: median {det_med:.3f}s\n")
+
+    summary: dict[str, float] = {}
+    print(f"{'method / layer':<34}{'n':>3}{'median':>10}{'mean':>10}{'p95':>10}")
+    for m in methods:
+        n = a.slow_n if m.slow else a.n
+        layers = model.info.recommended_layers if m.uses_target_layer else [None]
+        props = m.params_schema.get("properties", {})
+        params = {"timeout_s": 1800} if "timeout_s" in props else {}     # no timeout in the benchmark
+        for layer in layers:
+            times = []
+            try:
+                for i, img in enumerate(images[:a.warmup + n]):
+                    _, t = timed(model.device, lambda: m.run(
+                        model, img, layer.name if layer else None, "full_image",
+                        conf_threshold=a.conf, **params))
+                    if i >= a.warmup:
+                        times.append(t)
+            except Exception as e:
+                print(f"{m.name:<34} FAILED: {type(e).__name__}: {e}")
+                continue
+            label = m.name + (f" [{layer.name}{'*' if layer.default else ''}]" if layer else "")
+            med = statistics.median(times)
+            print(f"{label:<34}{len(times):>3}{med:>9.2f}s{statistics.mean(times):>9.2f}s"
+                  f"{float(np.percentile(times, 95)):>9.2f}s")
+            if layer is None or layer.default:
+                summary[m.name] = med
+
+    if not summary:
+        raise SystemExit("No method completed.")
+    fast = sum(v for k, v in summary.items() if not next(x for x in methods if x.name == k).slow)
+    total = sum(summary.values())
+    print(f"\nPer image (default layer): detect {det_med:.2f}s + XAI "
+          f"[fast {fast:.2f}s | all {total:.2f}s]")
+    for label, per_image in (("fast methods", det_med + fast), ("all methods", det_med + total)):
+        print(f"batch_size for progress every ~{TARGET_BATCH_SECONDS}s ({label}): "
+              f"{max(1, round(TARGET_BATCH_SECONDS / per_image))}")
     if a.write:
-        save_runtime_estimate(method.name, default_median, model.device.type)
+        for name, med in summary.items():
+            save_runtime_estimate(name, med, model.device.type)
         print("Written to app/xai/runtime_estimates.json")
+
 
 if __name__ == "__main__":
     main()

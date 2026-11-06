@@ -7,7 +7,7 @@ import torch
 
 @dataclass(frozen=True)
 class Letterbox:
-    """Μετασχηματισμός original -> τετράγωνο input του μοντέλου (και αντίστροφα)."""
+    """Transforms original image -> model's square input (and vice versa)."""
     scale: float
     left: int
     top: int
