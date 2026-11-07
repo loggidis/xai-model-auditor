@@ -1,4 +1,4 @@
-"""Starts one Celery worker per GPU (or one on CPU).
+"""Starts one Celery worker per GPU (or one on CPU) plus one worker for the exports queue.
 
 python -m scripts.run_workers                       # all GPUs, otherwise 1 CPU worker
 python -m scripts.run_workers --devices cuda:0      # specific devices
@@ -9,10 +9,13 @@ import os
 import subprocess
 import sys
 
+BASE = [sys.executable, "-m", "celery", "-A", "app.worker.celery_app", "worker",
+        "--pool=threads", "--concurrency=1", "--loglevel=info"]
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--devices", default=None, help="comma-separated list: cuda:0,cuda:1 or cpu")
+    ap.add_argument("--devices", default=None, help="comma separated list: cuda:0,cuda:1 or cpu")
     a = ap.parse_args()
 
     if a.devices:
@@ -25,10 +28,11 @@ def main():
     for i, dev in enumerate(devices):
         env = {**os.environ, "XAI_DEVICE": dev}          # read by Settings
         node = f"w{i}-{dev.replace(':', '')}@%h"
-        cmd = [sys.executable, "-m", "celery", "-A", "app.worker.celery_app", "worker",
-               "--pool=threads", "--concurrency=1", "--loglevel=info", "-n", node]
-        print(f"Starting worker {node} on {dev}")
-        procs.append(subprocess.Popen(cmd, env=env))
+        print(f"Starting audit worker {node} on {dev}")
+        procs.append(subprocess.Popen([*BASE, "-Q", "celery", "-n", node], env=env))
+
+    print("Starting exports worker")                       # no model, no GPU
+    procs.append(subprocess.Popen([*BASE, "-Q", "exports", "-n", "exports@%h"]))
     try:
         for p in procs:
             p.wait()
@@ -39,4 +43,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

@@ -9,6 +9,7 @@ from app.models.audit import Audit
 from app.models.notification import Notification
 from app.models.user import User
 from app.models.user_settings import UserSettings
+from app.models.audit_export import AuditExport
 from app.services.progress import progress_counts
 
 log = logging.getLogger(__name__)
@@ -60,3 +61,26 @@ def mark_read(db: Session, user: User, notification_id: uuid.UUID) -> Notificati
 def unread_count(db: Session, user: User) -> int:
     return db.scalar(select(func.count()).select_from(Notification)
                      .where(Notification.user_id == user.id, Notification.is_read.is_(False))) or 0
+
+
+def notify_export(db: Session, export: AuditExport, kind: str) -> None:
+    """kind: ready | failed. Never raises (a notification must not break the export)."""
+    try:
+        prefs = db.get(UserSettings, export.user_id)
+        if prefs is not None and not prefs.notifications_enabled:
+            return
+        short = str(export.audit_id)[:8]
+        if kind == "ready":
+            title = f"Export for audit {short} is ready"
+            message = f"{export.image_count} flagged images exported."
+            if export.skipped_count:
+                message += f" {export.skipped_count} skipped (file missing)."
+        else:
+            title = f"Export for audit {short} failed"
+            message = export.error_message or "Unknown error."
+        db.add(Notification(user_id=export.user_id, audit_id=export.audit_id,
+                            type=f"export_{kind}", title=title, message=message))
+        db.commit()
+    except Exception:
+        log.exception("Export notification failed")
+        db.rollback()

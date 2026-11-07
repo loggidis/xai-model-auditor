@@ -20,11 +20,11 @@ def health():
 
 @router.get("/queue")
 def queue_health(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    redis_state, pending, workers = "down", None, []
+    redis_state, pending, exports_pending, workers = "down", None, None, []
     try:
         r = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
         r.ping()
-        redis_state, pending = "up", r.llen("celery")
+        redis_state, pending, exports_pending = "up", r.llen("celery"), r.llen("exports")
         workers = sorted((celery_app.control.inspect(timeout=1).ping() or {}).keys())
     except Exception:
         pass
@@ -35,6 +35,7 @@ def queue_health(db: Session = Depends(get_db), user: User = Depends(get_current
     return {
         "redis": redis_state,
         "workers": workers,
-        "pending_tasks": pending,                 # Tasks pending in Redis queue
+        "pending_tasks": pending,                 # audit tasks waiting in Redis
+        "pending_exports": exports_pending,       # export tasks waiting in Redis
         "audits": {"pending": counts.get("pending", 0), "running": counts.get("running", 0)},
     }

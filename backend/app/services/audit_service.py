@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.audit import Audit, AuditResult
 from app.models.dataset import DatasetImage
 from app.models.user import User
+from app.models.audit_export import AuditExport
 from app.schemas.audit import (AuditCreate, AuditRead, HeatmapBrief, HeatmapRead, Progress,
                                ResultDetail, ResultSummary)
 from app.services import dataset_service, model_service, notification_service, settings_service, storage
@@ -282,9 +283,13 @@ def delete_audit(db: Session, user: User, audit_id: uuid.UUID) -> None:
         .where(AuditResult.audit_id == audit.id, AuditResult.status == "processing")
     ):
         raise HTTPException(409, "Audit is finishing its current image, try again in a few seconds")
+    if db.scalar(select(func.count()).select_from(AuditExport)
+                 .where(AuditExport.audit_id == audit.id, AuditExport.status == "running")):
+        raise HTTPException(409, "An export is running for this audit, try again when it finishes")
     task_id, was_pending = audit.celery_task_id, audit.status == "pending"
-    db.delete(audit)                               # results/heatmaps are deleted via CASCADE
+    db.delete(audit)                               # results, heatmaps, evaluations and exports: CASCADE
     db.commit()
     if was_pending:
         _revoke(task_id)
-    storage.remove_dir(f"audits/{audit_id}")       # heatmaps from the filesystem
+    storage.remove_dir(f"audits/{audit_id}")       # heatmaps
+    storage.remove_dir(f"exports/{audit_id}")      # export zips
