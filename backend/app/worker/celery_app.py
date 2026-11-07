@@ -7,7 +7,7 @@ from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
-celery_app = Celery("xai_auditor", broker=settings.REDIS_URL, include=["app.worker.tasks"])
+celery_app = Celery("xai_auditor", broker=settings.REDIS_URL, include=["app.worker.tasks", "app.worker.export_tasks"])
 celery_app.conf.update(
     task_acks_late=True,                 # if the worker dies, the task is redistributed
     worker_prefetch_multiplier=1,        # one heavy task at a time
@@ -23,6 +23,7 @@ celery_app.conf.update(
         "socket_timeout": 5,
     },
     timezone="UTC",
+        task_routes={"exports.run": {"queue": "exports"}},   # exports never wait behind a long audit
 )
 
 
