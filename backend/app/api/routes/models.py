@@ -8,10 +8,13 @@ from app.models.user import User
 from app.schemas.ml_model import ModelRead
 from app.schemas.xai import LayerRead
 from app.services import model_service
+from app.api.rate_limits import limit_by_user
+from app.core.config import settings
 
 router = APIRouter(prefix="/models", tags=["models"])
 
-@router.post("", response_model=ModelRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ModelRead, status_code=status.HTTP_201_CREATED,
+               dependencies=[Depends(limit_by_user("uploads", settings.RATE_LIMIT_UPLOADS_PER_HOUR, 3600))])
 def upload_model(
     file: UploadFile = File(...),
     name: str = Form(..., min_length=1, max_length=255),

@@ -22,7 +22,7 @@ TERMINAL = {"completed", "failed", "cancelled"}
 
 
 def _user_id(request: Request, token: str | None) -> uuid.UUID:
-    """Token από header ή από ?token= (το EventSource δεν στέλνει headers)."""
+    """Token from the header or from ?token= (EventSource cannot send headers)."""
     raw = token
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
@@ -37,7 +37,7 @@ def _user_id(request: Request, token: str | None) -> uuid.UUID:
 
 
 def _load_snapshot(audit_id: uuid.UUID, user_id: uuid.UUID) -> tuple[str, dict]:
-    with SessionLocal() as db:                      # σύντομη session, δεν μένει ανοιχτή στο stream
+    with SessionLocal() as db:                      # short session, not kept open during the stream
         user = db.get(User, user_id)
         if not user or not user.is_active:
             raise HTTPException(401, "Invalid or expired token")
@@ -59,7 +59,17 @@ async def _close(pubsub, client) -> None:
             pass
 
 
-@router.get("/{audit_id}/stream")
+@router.get(
+    "/{audit_id}/stream",
+    summary="Live audit progress (Server-Sent Events)",
+    description=(
+        "Opens an SSE stream. It starts with a `progress` snapshot, then sends `image_done`, "
+        "`image_failed` and `progress` events while the audit runs, and closes after a terminal event "
+        "(`completed`, `failed` or `cancelled`). Browsers' `EventSource` cannot send headers, so the "
+        "access token may be passed as the `token` query parameter."
+    ),
+    responses={200: {"description": "Event stream", "content": {"text/event-stream": {"schema": {"type": "string"}}}}},
+)
 async def stream_audit(audit_id: uuid.UUID, request: Request, token: str | None = Query(None)):
     user_id = _user_id(request, token)
 
@@ -86,7 +96,7 @@ async def stream_audit(audit_id: uuid.UUID, request: Request, token: str | None 
                     break
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15)
                 if msg is None:
-                    yield ": keep-alive\n\n"             
+                    yield ": keep-alive\n\n"
                     continue
                 payload = json.loads(msg["data"])
                 yield _sse(payload["event"], payload["data"])

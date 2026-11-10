@@ -40,3 +40,4 @@ build/
 Thumbs.db
 
 xai_out/
+celerybeat-schedule*
