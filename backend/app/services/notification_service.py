@@ -84,3 +84,21 @@ def notify_export(db: Session, export: AuditExport, kind: str) -> None:
     except Exception:
         log.exception("Export notification failed")
         db.rollback()
+def notify_summary(db: Session, audit: Audit, kind: str) -> None:
+    """kind: done | failed. Never raises (a notification must not break the job)."""
+    try:
+        prefs = db.get(UserSettings, audit.user_id)
+        if prefs is not None and not prefs.notifications_enabled:
+            return
+        short = str(audit.id)[:8]
+        if kind == "done":
+            ntype, title = "summary_ready", f"Summary for audit {short} is ready"
+            message = "The AI-generated summary is available in the audit report."
+        else:
+            ntype, title = "summary_failed", f"Summary for audit {short} failed"
+            message = audit.llm_summary_error or "Unknown error."
+        db.add(Notification(user_id=audit.user_id, audit_id=audit.id, type=ntype, title=title, message=message))
+        db.commit()
+    except Exception:
+        log.exception("Summary notification failed")
+        db.rollback()

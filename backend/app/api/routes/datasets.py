@@ -7,10 +7,13 @@ from app.models.user import User
 from app.schemas.dataset import DatasetRead, ImagePage
 from app.services import dataset_service
 from fastapi.responses import FileResponse
+from app.api.rate_limits import limit_by_user
+from app.core.config import settings
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
-@router.post("", response_model=DatasetRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=DatasetRead, status_code=status.HTTP_201_CREATED,
+               dependencies=[Depends(limit_by_user("uploads", settings.RATE_LIMIT_UPLOADS_PER_HOUR, 3600))])
 def upload_dataset(
     file: UploadFile = File(...),
     name: str = Form(..., min_length=1, max_length=255),

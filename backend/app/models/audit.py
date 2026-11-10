@@ -32,7 +32,14 @@ class Audit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
+    llm_summary_status: Mapped[str | None] = mapped_column(String(20), nullable=True)   # pending|running|done|failed
+    llm_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_summary_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    llm_summary_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    llm_summary_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_summary_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    llm_summary_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   
 
 class AuditResult(Base):
     __tablename__ = "audit_results"

@@ -1,8 +1,16 @@
 from fastapi import APIRouter
+
 from app.api.routes import (audit_stream, audits, auth, datasets, evaluations, health, models,
                             notifications, reports, user_settings, xai)
+from app.schemas.error import ErrorResponse
 
-api_router = APIRouter(prefix="/api")
+_ERRORS = {
+    401: {"model": ErrorResponse, "description": "Missing, invalid or expired credentials"},
+    422: {"model": ErrorResponse, "description": "Request validation failed"},
+    429: {"model": ErrorResponse, "description": "Rate limit exceeded (see the Retry-After header)"},
+}
+
+api_router = APIRouter(prefix="/api", responses=_ERRORS)
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(models.router)

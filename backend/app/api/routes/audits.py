@@ -10,11 +10,13 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.audit import AuditCreate, AuditRead, ResultDetail, ResultPage
 from app.services import audit_service
-
+from app.api.rate_limits import limit_by_user
+from app.core.config import settings
 router = APIRouter(prefix="/audits", tags=["audits"])
 
 
-@router.post("", response_model=AuditRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AuditRead, status_code=status.HTTP_201_CREATED,
+               dependencies=[Depends(limit_by_user("audits", settings.RATE_LIMIT_AUDITS_PER_HOUR, 3600))])
 def create_audit(data: AuditCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     audit = audit_service.create_audit(db, user, data)
     return audit_service.to_read(db, [audit])[0]
